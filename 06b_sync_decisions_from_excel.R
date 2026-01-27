@@ -191,10 +191,45 @@ if (MIGRATION_MODE) {
     }
   }
 
-  # NOTE: Tracked and Not_Tracked sheets now use dynamic FILTER formulas
+  # Also read from Tracked and Not_Tracked sheets for any changes
+  for (sheet_name in c("Tracked", "Not_Tracked")) {
+    if (sheet_name %in% sheets) {
+      sheet_data <- wb_read(wb, sheet = sheet_name)
 
-  # that reference Needs_Review. All data entry happens in Needs_Review,
-  # so we don't need to read from those sheets anymore.
+      # Check if this is a placeholder message
+      if (!"bill_id" %in% names(sheet_data) || !"Track" %in% names(sheet_data)) {
+        cat("  ", sheet_name, "sheet has no editable bills\n")
+        next
+      }
+
+      sheet_decisions <- sheet_data %>%
+        filter(!is.na(bill_id)) %>%
+        mutate(
+          bill_id = as.numeric(bill_id),
+          Track = ifelse(is.na(Track) | Track == FALSE | Track == "FALSE", FALSE, TRUE)
+        ) %>%
+        select(bill_id, Track)
+
+      cat("  Found", nrow(sheet_decisions), "bills in", sheet_name, "\n")
+
+      if (nrow(sheet_decisions) > 0) {
+        for (i in 1:nrow(sheet_decisions)) {
+          bid <- sheet_decisions$bill_id[i]
+          track_val <- sheet_decisions$Track[i]
+
+          if (bid %in% tracking_data$bill_id) {
+            # Only update if value changed
+            old_val <- tracking_data$Track[tracking_data$bill_id == bid]
+            if (is.na(old_val) || old_val != track_val) {
+              tracking_data$Track[tracking_data$bill_id == bid] <- track_val
+              tracking_data$decision_date[tracking_data$bill_id == bid] <- as.character(Sys.Date())
+              decisions_updated <- decisions_updated + 1
+            }
+          }
+        }
+      }
+    }
+  }
 
   # Save updated tracking data
   write_csv(tracking_data, TRACKING_FILE)

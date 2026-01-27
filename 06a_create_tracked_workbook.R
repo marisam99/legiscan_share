@@ -216,14 +216,14 @@ if (nrow(needs_review_df) > 0) {
   wb <- wb_add_data(wb, "Needs_Review", data.frame(Message = "No bills need review"))
 }
 
-# --- Sheet 2: Tracked (Static view of ALL bills with Track=TRUE) ---
+# --- Sheet 2: Tracked (ALL bills with Track=TRUE, editable) ---
 wb <- wb_add_worksheet(wb, "Tracked")
 
 # Filter from ALL merged bills, not just needs_review
 tracked_from_review <- merged_bills %>%
   filter(Track == TRUE) %>%
   mutate(bill_id = as.character(bill_id)) %>%
-  select(state, bill_id, bill_number, title, status_date,
+  select(state, bill_id, bill_number, title, Track, status_date,
          action, url, committee, description)
 
 if (nrow(tracked_from_review) > 0) {
@@ -234,20 +234,32 @@ if (nrow(tracked_from_review) > 0) {
                     color = wb_color(hex = "4472C4"))
   wb <- wb_add_cell_style(wb, "Tracked", dims = wb_dims(rows = 1, cols = 1:ncol(tracked_from_review)),
                           horizontal = "center")
+
+  # Add Track column dropdown
+  track_col_t <- which(names(tracked_from_review) == "Track")
+  track_col_letter_t <- int2col(track_col_t)
+  wb <- wb_add_data_validation(wb, "Tracked",
+                                dims = paste0(track_col_letter_t, "2:", track_col_letter_t, nrow(tracked_from_review) + 1),
+                                type = "list",
+                                value = '"TRUE,FALSE"',
+                                showInputMsg = TRUE,
+                                promptTitle = "Track this bill?",
+                                prompt = "Change to FALSE to stop tracking")
+
   wb <- wb_set_col_widths(wb, "Tracked", cols = 1:ncol(tracked_from_review), widths = "auto")
 } else {
   wb <- wb_add_data(wb, "Tracked", data.frame(Message = "No tracked bills yet - mark Track=TRUE in Needs_Review"))
 }
 wb <- wb_freeze_pane(wb, "Tracked", first_row = TRUE)
 
-# --- Sheet 3: Not_Tracked (Static view of ALL bills with Track=FALSE) ---
+# --- Sheet 3: Not_Tracked (ALL bills with Track=FALSE, editable) ---
 wb <- wb_add_worksheet(wb, "Not_Tracked")
 
 # Filter from ALL merged bills, not just needs_review
 not_tracked_from_review <- merged_bills %>%
   filter(Track == FALSE) %>%
   mutate(bill_id = as.character(bill_id)) %>%
-  select(state, bill_id, bill_number, title, status_date,
+  select(state, bill_id, bill_number, title, Track, status_date,
          action, url, committee, description)
 
 if (nrow(not_tracked_from_review) > 0) {
@@ -258,6 +270,18 @@ if (nrow(not_tracked_from_review) > 0) {
                     color = wb_color(hex = "4472C4"))
   wb <- wb_add_cell_style(wb, "Not_Tracked", dims = wb_dims(rows = 1, cols = 1:ncol(not_tracked_from_review)),
                           horizontal = "center")
+
+  # Add Track column dropdown
+  track_col_nt <- which(names(not_tracked_from_review) == "Track")
+  track_col_letter_nt <- int2col(track_col_nt)
+  wb <- wb_add_data_validation(wb, "Not_Tracked",
+                                dims = paste0(track_col_letter_nt, "2:", track_col_letter_nt, nrow(not_tracked_from_review) + 1),
+                                type = "list",
+                                value = '"TRUE,FALSE"',
+                                showInputMsg = TRUE,
+                                promptTitle = "Track this bill?",
+                                prompt = "Change to TRUE to start tracking")
+
   wb <- wb_set_col_widths(wb, "Not_Tracked", cols = 1:ncol(not_tracked_from_review), widths = "auto")
 } else {
   wb <- wb_add_data(wb, "Not_Tracked", data.frame(Message = "No untracked bills yet"))
