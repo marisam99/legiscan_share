@@ -124,11 +124,9 @@ needs_review_df <- merged_bills %>%
          url, committee, description) %>%
   arrange(desc(is_new), state, bill_number)
 
-# Sheet 2 & 3: Tracked and Not_Tracked sheets will use dynamic FILTER formulas
-# These pull from Needs_Review in real-time, so no static dataframes needed
-# The formulas will automatically show bills based on the Track column value
-n_currently_tracked <- sum(needs_review_df$Track == TRUE, na.rm = TRUE)
-n_currently_not_tracked <- sum(needs_review_df$Track == FALSE, na.rm = TRUE)
+# Sheet 2 & 3: Tracked and Not_Tracked show ALL bills with those Track values
+n_currently_tracked <- sum(merged_bills$Track == TRUE, na.rm = TRUE)
+n_currently_not_tracked <- sum(merged_bills$Track == FALSE, na.rm = TRUE)
 
 # Sheet 4: Archive - Dead or stuck bills
 archive_df <- merged_bills %>%
@@ -140,8 +138,8 @@ archive_df <- merged_bills %>%
 
 cat("\nSheet counts:\n")
 cat("  Needs_Review:", nrow(needs_review_df), "\n")
-cat("  Tracked (dynamic):", n_currently_tracked, "bills with Track=TRUE\n")
-cat("  Not_Tracked (dynamic):", n_currently_not_tracked, "bills with Track=FALSE\n")
+cat("  Tracked:", n_currently_tracked, "bills with Track=TRUE\n")
+cat("  Not_Tracked:", n_currently_not_tracked, "bills with Track=FALSE\n")
 cat("  Archive:", nrow(archive_df), "\n")
 
 # ============================================
@@ -218,12 +216,13 @@ if (nrow(needs_review_df) > 0) {
   wb <- wb_add_data(wb, "Needs_Review", data.frame(Message = "No bills need review"))
 }
 
-# --- Sheet 2: Tracked (Static view of bills with Track=TRUE) ---
+# --- Sheet 2: Tracked (Static view of ALL bills with Track=TRUE) ---
 wb <- wb_add_worksheet(wb, "Tracked")
 
-# Filter needs_review_df for bills marked TRUE
-tracked_from_review <- needs_review_df %>%
+# Filter from ALL merged bills, not just needs_review
+tracked_from_review <- merged_bills %>%
   filter(Track == TRUE) %>%
+  mutate(bill_id = as.character(bill_id)) %>%
   select(state, bill_id, bill_number, title, status_date,
          action, url, committee, description)
 
@@ -241,12 +240,13 @@ if (nrow(tracked_from_review) > 0) {
 }
 wb <- wb_freeze_pane(wb, "Tracked", first_row = TRUE)
 
-# --- Sheet 3: Not_Tracked (Static view of bills with Track=FALSE) ---
+# --- Sheet 3: Not_Tracked (Static view of ALL bills with Track=FALSE) ---
 wb <- wb_add_worksheet(wb, "Not_Tracked")
 
-# Filter needs_review_df for bills marked FALSE
-not_tracked_from_review <- needs_review_df %>%
+# Filter from ALL merged bills, not just needs_review
+not_tracked_from_review <- merged_bills %>%
   filter(Track == FALSE) %>%
+  mutate(bill_id = as.character(bill_id)) %>%
   select(state, bill_id, bill_number, title, status_date,
          action, url, committee, description)
 
