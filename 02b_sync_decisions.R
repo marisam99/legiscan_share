@@ -121,7 +121,7 @@ if (MIGRATION_MODE) {
   write_csv(tracking_data, TRACKING_FILE)
   cat("\nMigration complete!\n")
   cat("Imported", nrow(decisions_to_import), "decisions to", TRACKING_FILE, "\n")
-  cat("\nNow set MIGRATION_MODE <- FALSE and run 06b_create_tracked_workbook.R\n")
+  cat("\nNow set MIGRATION_MODE <- FALSE and run 02a_create_tracked_workbook.R\n")
 
 } else {
   # ============================================
@@ -240,5 +240,5 @@ if (MIGRATION_MODE) {
   cat("Total not-tracked bills:", sum(tracking_data$Track == FALSE, na.rm = TRUE), "\n")
   cat("Bills pending decision:", sum(is.na(tracking_data$Track)), "\n")
   cat("\nSaved to:", TRACKING_FILE, "\n")
-  cat("\nRun 06a_create_tracked_workbook.R to regenerate the Excel workbook.\n")
+  cat("\nRun 02a_create_tracked_workbook.R to regenerate the Excel workbook.\n")
 }

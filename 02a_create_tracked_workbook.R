@@ -11,7 +11,7 @@
 #
 # Workflow:
 #   1. Open Master_Pull_List.xlsx and set Track=TRUE/FALSE in Needs_Review
-#   2. Save the file and run 06b_sync_decisions_from_excel.R
+#   2. Save the file and run 02b_sync_decisions.R
 #   3. Run this script again to refresh the Tracked/Not_Tracked views
 #
 # Requires: openxlsx2, tidyverse
@@ -368,5 +368,5 @@ cat("\nWorkflow next steps:\n")
 cat("1. Open", OUTPUT_FILE, "and review the Needs_Review sheet\n")
 cat("2. Set Track = TRUE for bills you want to track (FALSE is default = not tracked)\n")
 cat("3. Save the Excel file\n")
-cat("4. Run 06b_sync_decisions_from_excel.R to save your decisions\n")
+cat("4. Run 02b_sync_decisions.R to save your decisions\n")
 cat("5. Run this script again to refresh the Tracked/Not_Tracked sheet views\n")
