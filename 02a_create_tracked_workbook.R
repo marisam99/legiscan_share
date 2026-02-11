@@ -1,46 +1,33 @@
-# R SCRIPT: Create Tracked Workbook with Change Detection
-# Creates Excel workbook with 4 review-focused sheets:
-#   - Needs_Review: New bills + bills with changes (main data entry sheet)
-#   - Tracked: Bills where Track=TRUE (static snapshot, refreshes when script runs)
-#   - Not_Tracked: Bills where Track=FALSE (static snapshot, refreshes when script runs)
-#   - Archive: Dead or stuck bills
-#
-# Track column behavior:
-#   - TRUE = Track this bill (select from dropdown)
-#   - FALSE = Do not track (default - no action needed)
-#
-# Workflow:
-#   1. Open Master_Pull_List.xlsx and set Track=TRUE/FALSE in Needs_Review
-#   2. Save the file and run 02b_sync_decisions.R
-#   3. Run this script again to refresh the Tracked/Not_Tracked views
-#
-# Requires: openxlsx2, tidyverse
-# Install openxlsx2 with: install.packages("openxlsx2")
-library(tidyverse)
-library(openxlsx2)
+# ==============================================================================
+# Title:        Create Tracked Workbook
+# Description:  Creates an Excel workbook (Master_Pull_List.xlsx) with 4 sheets
+#               for reviewing and tracking legislative bills: Needs_Review (new
+#               and changed bills), Tracked, Not_Tracked, and Archive (dead/stuck).
+#               Detects changes since last run and highlights them.
+# Output:       Master_Pull_List.xlsx, tracking_decisions.csv
+# ==============================================================================
 
-# ============================================
-# CONFIGURATION
-# ============================================
+source("config/pkg_dependencies.R")
+source("config/filter_settings.R")
+
+# Configs ----------------------------------------------------------------------
+
 CURRENT_DATE <- Sys.Date()
-STUCK_THRESHOLD_DAYS <- 45
 
-INPUT_FILE <- "filtered_bills.csv"
-TRACKING_FILE <- "tracking_decisions.csv"
-OUTPUT_FILE <- "Master_Pull_List.xlsx"
+# Track column: TRUE = track this bill, FALSE = do not track (default)
+# Workflow:
+#   1. Open Master_Pull_List.xlsx → set Track=TRUE/FALSE in Needs_Review
+#   2. Save the file → run 02b_sync_decisions.R
+#   3. Run this script again to refresh Tracked/Not_Tracked views
 
-# ============================================
-# 1. LOAD CURRENT BILLS DATA
-# ============================================
-cat("Loading current bills from", INPUT_FILE, "...\n")
-current_bills <- read_csv(INPUT_FILE, show_col_types = FALSE)
+# Load Data --------------------------------------------------------------------
+
+cat("\n\U0001f535 Loading current bills from", "filtered_bills.csv", "...\n")
+current_bills <- read_csv("filtered_bills.csv", show_col_types = FALSE)
 cat("  Loaded", nrow(current_bills), "bills\n")
 
-# ============================================
-# 2. LOAD OR INITIALIZE TRACKING DATA
-# ============================================
-if (!file.exists(TRACKING_FILE)) {
-  cat("No tracking file found. Creating new", TRACKING_FILE, "...\n")
+if (!file.exists("tracking_decisions.csv")) {
+  cat("\U0001f7e1 No tracking file found. Creating new", "tracking_decisions.csv", "...\n")
   tracking_data <- tibble(
     bill_id = integer(),
     Track = logical(),
@@ -49,30 +36,26 @@ if (!file.exists(TRACKING_FILE)) {
     previous_action = character(),
     notes = character()
   )
-  write_csv(tracking_data, TRACKING_FILE)
+  write_csv(tracking_data, "tracking_decisions.csv")
 } else {
-  cat("Loading tracking decisions from", TRACKING_FILE, "...\n")
-  tracking_data <- read_csv(TRACKING_FILE, show_col_types = FALSE)
-  cat("  Loaded", nrow(tracking_data), "tracked decisions\n")
+  tracking_data <- read_csv("tracking_decisions.csv", show_col_types = FALSE)
+  cat("  Loaded", nrow(tracking_data), "tracked decisions from", "tracking_decisions.csv", "\n")
 }
 
-# ============================================
-# 3. MERGE AND DETECT CHANGES
-# ============================================
-cat("Detecting changes...\n")
+# Detect Changes ---------------------------------------------------------------
 
-merged_bills <- current_bills %>%
+cat("\n\U0001f535 Detecting changes...\n")
+
+merged_bills <- current_bills |>
   left_join(
-    tracking_data %>% select(bill_id, Track, decision_date,
-                             previous_status_date, previous_action, notes),
+    tracking_data |> select(bill_id, Track, decision_date,
+                            previous_status_date, previous_action, notes),
     by = "bill_id"
-  ) %>%
+  ) |>
   mutate(
-    # Convert status_date to character for comparison (handles numeric Excel dates)
     status_date_str = as.character(status_date),
     prev_status_str = as.character(previous_status_date),
 
-    # Change detection flags
     is_new = is.na(Track),
     status_changed = !is.na(previous_status_date) &
                      status_date_str != prev_status_str,
@@ -80,16 +63,14 @@ merged_bills <- current_bills %>%
                      action != previous_action,
     needs_review = is_new | status_changed | action_changed,
 
-    # Archive detection (Dead/Stuck bills)
-    # Try to parse status_date - handle both date and numeric formats
+    # Handle both date and numeric formats from Excel
     status_date_parsed = case_when(
       is.numeric(status_date) ~ as.Date(status_date, origin = "1899-12-30"),
       TRUE ~ as.Date(status_date)
     ),
     days_since_action = as.numeric(difftime(CURRENT_DATE, status_date_parsed, units = "days")),
 
-    is_dead = grepl("died in committee|fail|postpone|postponed|inexpedient|killed|veto",
-                    action, ignore.case = TRUE),
+    is_dead = grepl(DEAD_KEYWORDS, action, ignore.case = TRUE),
     is_stuck = !is_dead & !is.na(days_since_action) & days_since_action > STUCK_THRESHOLD_DAYS,
     archive_reason = case_when(
       is_dead ~ "Dead",
@@ -98,7 +79,6 @@ merged_bills <- current_bills %>%
     )
   )
 
-# Summary stats
 n_new <- sum(merged_bills$is_new, na.rm = TRUE)
 n_status_changed <- sum(merged_bills$status_changed, na.rm = TRUE)
 n_action_changed <- sum(merged_bills$action_changed, na.rm = TRUE)
@@ -109,57 +89,50 @@ cat("  Status changed:", n_status_changed, "\n")
 cat("  Action changed:", n_action_changed, "\n")
 cat("  Total needs review:", n_needs_review, "\n")
 
-# ============================================
-# 4. CATEGORIZE INTO SHEETS
-# ============================================
+# Categorize Into Sheets -------------------------------------------------------
 
-# Sheet 1: Needs_Review - New bills + changed bills
-needs_review_df <- merged_bills %>%
-  filter(needs_review) %>%
-  mutate(bill_id = as.character(bill_id)) %>%  # Prevent scientific notation in Excel
+needs_review_df <- merged_bills |>
+  filter(needs_review) |>
+  mutate(
+    bill_id = as.character(bill_id), # prevent scientific notation in Excel
+    Track = ifelse(is.na(Track), FALSE, Track)
+  ) |>
   select(state, bill_id, bill_number, title, Track,
          is_new, status_changed, action_changed,
          status_date, previous_status_date,
          action, previous_action,
-         url, committee, description) %>%
+         url, committee, description) |>
   arrange(desc(is_new), state, bill_number)
 
-# Sheet 2 & 3: Tracked and Not_Tracked show ALL bills with those Track values
 n_currently_tracked <- sum(merged_bills$Track == TRUE, na.rm = TRUE)
 n_currently_not_tracked <- sum(merged_bills$Track == FALSE, na.rm = TRUE)
 
-# Sheet 4: Archive - Dead or stuck bills
-archive_df <- merged_bills %>%
-  filter(!is.na(archive_reason)) %>%
-  mutate(bill_id = as.character(bill_id)) %>%  # Prevent scientific notation in Excel
+archive_df <- merged_bills |>
+  filter(!is.na(archive_reason)) |>
+  mutate(bill_id = as.character(bill_id)) |>
   select(state, bill_id, bill_number, title, Track, status_date,
-         days_since_action, action, archive_reason, url) %>%
+         days_since_action, action, archive_reason, url) |>
   arrange(archive_reason, state, bill_number)
 
-cat("\nSheet counts:\n")
+cat("\n\U0001f4ca Sheet counts:\n")
 cat("  Needs_Review:", nrow(needs_review_df), "\n")
-cat("  Tracked:", n_currently_tracked, "bills with Track=TRUE\n")
-cat("  Not_Tracked:", n_currently_not_tracked, "bills with Track=FALSE\n")
+cat("  Tracked:", n_currently_tracked, "\n")
+cat("  Not_Tracked:", n_currently_not_tracked, "\n")
 cat("  Archive:", nrow(archive_df), "\n")
 
-# ============================================
-# 5. CREATE WORKBOOK WITH STYLES
-# ============================================
-cat("\nCreating Excel workbook...\n")
+# Create Workbook --------------------------------------------------------------
+
+cat("\n\U0001f535 Creating Excel workbook...\n")
 
 wb <- wb_workbook()
 
-# --- Sheet 1: Needs_Review ---
+# --- Needs_Review sheet ---
 wb <- wb_add_worksheet(wb, "Needs_Review")
-if (nrow(needs_review_df) > 0) {
-  # Prepare data: Convert Track to FALSE (unchecked) for new bills
-  # This way, unchecked = not tracked (default), checked = track
-  needs_review_df <- needs_review_df %>%
-    mutate(Track = ifelse(is.na(Track), FALSE, Track))
 
+if (nrow(needs_review_df) > 0) {
   wb <- wb_add_data(wb, "Needs_Review", needs_review_df)
 
-  # Header style (bold, blue background, white text)
+  # Header style
   wb <- wb_add_font(wb, "Needs_Review", dims = wb_dims(rows = 1, cols = 1:ncol(needs_review_df)),
                     bold = TRUE, color = wb_color(hex = "FFFFFF"))
   wb <- wb_add_fill(wb, "Needs_Review", dims = wb_dims(rows = 1, cols = 1:ncol(needs_review_df)),
@@ -167,7 +140,7 @@ if (nrow(needs_review_df) > 0) {
   wb <- wb_add_cell_style(wb, "Needs_Review", dims = wb_dims(rows = 1, cols = 1:ncol(needs_review_df)),
                           horizontal = "center")
 
-  # Highlight entire row for new bills (light blue)
+  # Highlight new bills (light blue rows)
   if (any(needs_review_df$is_new, na.rm = TRUE)) {
     new_rows <- which(needs_review_df$is_new) + 1
     for (row in new_rows) {
@@ -196,12 +169,9 @@ if (nrow(needs_review_df) > 0) {
     }
   }
 
-  # Add checkbox data validation for Track column
-  # In Excel, checkboxes work with TRUE/FALSE values
+  # Track column dropdown
   track_col <- which(names(needs_review_df) == "Track")
   track_col_letter <- int2col(track_col)
-
-  # Add data validation to restrict to TRUE/FALSE (checkbox behavior)
   wb <- wb_add_data_validation(wb, "Needs_Review",
                                 dims = paste0(track_col_letter, "2:", track_col_letter, nrow(needs_review_df) + 1),
                                 type = "list",
@@ -216,80 +186,77 @@ if (nrow(needs_review_df) > 0) {
   wb <- wb_add_data(wb, "Needs_Review", data.frame(Message = "No bills need review"))
 }
 
-# --- Sheet 2: Tracked (ALL bills with Track=TRUE, editable) ---
+# --- Tracked sheet ---
 wb <- wb_add_worksheet(wb, "Tracked")
 
-# Filter from ALL merged bills, not just needs_review
-tracked_from_review <- merged_bills %>%
-  filter(Track == TRUE) %>%
-  mutate(bill_id = as.character(bill_id)) %>%
+tracked_bills <- merged_bills |>
+  filter(Track == TRUE) |>
+  mutate(bill_id = as.character(bill_id)) |>
   select(state, bill_id, bill_number, title, Track, status_date,
          action, url, committee, description)
 
-if (nrow(tracked_from_review) > 0) {
-  wb <- wb_add_data(wb, "Tracked", tracked_from_review)
-  wb <- wb_add_font(wb, "Tracked", dims = wb_dims(rows = 1, cols = 1:ncol(tracked_from_review)),
+if (nrow(tracked_bills) > 0) {
+  wb <- wb_add_data(wb, "Tracked", tracked_bills)
+  wb <- wb_add_font(wb, "Tracked", dims = wb_dims(rows = 1, cols = 1:ncol(tracked_bills)),
                     bold = TRUE, color = wb_color(hex = "FFFFFF"))
-  wb <- wb_add_fill(wb, "Tracked", dims = wb_dims(rows = 1, cols = 1:ncol(tracked_from_review)),
+  wb <- wb_add_fill(wb, "Tracked", dims = wb_dims(rows = 1, cols = 1:ncol(tracked_bills)),
                     color = wb_color(hex = "4472C4"))
-  wb <- wb_add_cell_style(wb, "Tracked", dims = wb_dims(rows = 1, cols = 1:ncol(tracked_from_review)),
+  wb <- wb_add_cell_style(wb, "Tracked", dims = wb_dims(rows = 1, cols = 1:ncol(tracked_bills)),
                           horizontal = "center")
 
-  # Add Track column dropdown
-  track_col_t <- which(names(tracked_from_review) == "Track")
+  track_col_t <- which(names(tracked_bills) == "Track")
   track_col_letter_t <- int2col(track_col_t)
   wb <- wb_add_data_validation(wb, "Tracked",
-                                dims = paste0(track_col_letter_t, "2:", track_col_letter_t, nrow(tracked_from_review) + 1),
+                                dims = paste0(track_col_letter_t, "2:", track_col_letter_t, nrow(tracked_bills) + 1),
                                 type = "list",
                                 value = '"TRUE,FALSE"',
                                 showInputMsg = TRUE,
                                 promptTitle = "Track this bill?",
                                 prompt = "Change to FALSE to stop tracking")
 
-  wb <- wb_set_col_widths(wb, "Tracked", cols = 1:ncol(tracked_from_review), widths = "auto")
+  wb <- wb_set_col_widths(wb, "Tracked", cols = 1:ncol(tracked_bills), widths = "auto")
 } else {
   wb <- wb_add_data(wb, "Tracked", data.frame(Message = "No tracked bills yet - mark Track=TRUE in Needs_Review"))
 }
 wb <- wb_freeze_pane(wb, "Tracked", first_row = TRUE)
 
-# --- Sheet 3: Not_Tracked (ALL bills with Track=FALSE, editable) ---
+# --- Not_Tracked sheet ---
 wb <- wb_add_worksheet(wb, "Not_Tracked")
 
-# Filter from ALL merged bills, not just needs_review
-not_tracked_from_review <- merged_bills %>%
-  filter(Track == FALSE) %>%
-  mutate(bill_id = as.character(bill_id)) %>%
+not_tracked_bills <- merged_bills |>
+  filter(Track == FALSE) |>
+  mutate(bill_id = as.character(bill_id)) |>
   select(state, bill_id, bill_number, title, Track, status_date,
          action, url, committee, description)
 
-if (nrow(not_tracked_from_review) > 0) {
-  wb <- wb_add_data(wb, "Not_Tracked", not_tracked_from_review)
-  wb <- wb_add_font(wb, "Not_Tracked", dims = wb_dims(rows = 1, cols = 1:ncol(not_tracked_from_review)),
+if (nrow(not_tracked_bills) > 0) {
+  wb <- wb_add_data(wb, "Not_Tracked", not_tracked_bills)
+  wb <- wb_add_font(wb, "Not_Tracked", dims = wb_dims(rows = 1, cols = 1:ncol(not_tracked_bills)),
                     bold = TRUE, color = wb_color(hex = "FFFFFF"))
-  wb <- wb_add_fill(wb, "Not_Tracked", dims = wb_dims(rows = 1, cols = 1:ncol(not_tracked_from_review)),
+  wb <- wb_add_fill(wb, "Not_Tracked", dims = wb_dims(rows = 1, cols = 1:ncol(not_tracked_bills)),
                     color = wb_color(hex = "4472C4"))
-  wb <- wb_add_cell_style(wb, "Not_Tracked", dims = wb_dims(rows = 1, cols = 1:ncol(not_tracked_from_review)),
+  wb <- wb_add_cell_style(wb, "Not_Tracked", dims = wb_dims(rows = 1, cols = 1:ncol(not_tracked_bills)),
                           horizontal = "center")
 
-  # Add Track column dropdown
-  track_col_nt <- which(names(not_tracked_from_review) == "Track")
+  track_col_nt <- which(names(not_tracked_bills) == "Track")
   track_col_letter_nt <- int2col(track_col_nt)
   wb <- wb_add_data_validation(wb, "Not_Tracked",
-                                dims = paste0(track_col_letter_nt, "2:", track_col_letter_nt, nrow(not_tracked_from_review) + 1),
+                                dims = paste0(track_col_letter_nt, "2:", track_col_letter_nt, nrow(not_tracked_bills) + 1),
                                 type = "list",
                                 value = '"TRUE,FALSE"',
                                 showInputMsg = TRUE,
                                 promptTitle = "Track this bill?",
                                 prompt = "Change to TRUE to start tracking")
 
-  wb <- wb_set_col_widths(wb, "Not_Tracked", cols = 1:ncol(not_tracked_from_review), widths = "auto")
+  wb <- wb_set_col_widths(wb, "Not_Tracked", cols = 1:ncol(not_tracked_bills), widths = "auto")
 } else {
   wb <- wb_add_data(wb, "Not_Tracked", data.frame(Message = "No untracked bills yet"))
 }
 wb <- wb_freeze_pane(wb, "Not_Tracked", first_row = TRUE)
 
-# --- Sheet 4: Archive ---
+# --- Archive sheet ---
 wb <- wb_add_worksheet(wb, "Archive")
+
 if (nrow(archive_df) > 0) {
   wb <- wb_add_data(wb, "Archive", archive_df)
   wb <- wb_add_font(wb, "Archive", dims = wb_dims(rows = 1, cols = 1:ncol(archive_df)),
@@ -299,7 +266,7 @@ if (nrow(archive_df) > 0) {
   wb <- wb_add_cell_style(wb, "Archive", dims = wb_dims(rows = 1, cols = 1:ncol(archive_df)),
                           horizontal = "center")
 
-  # Style dead bills (gray)
+  # Gray for dead bills
   dead_rows <- which(archive_df$archive_reason == "Dead") + 1
   if (length(dead_rows) > 0) {
     for (row in dead_rows) {
@@ -310,7 +277,7 @@ if (nrow(archive_df) > 0) {
     }
   }
 
-  # Style stuck bills (orange-ish)
+  # Orange for stuck bills
   stuck_rows <- which(archive_df$archive_reason == "Stuck") + 1
   if (length(stuck_rows) > 0) {
     for (row in stuck_rows) {
@@ -327,46 +294,40 @@ if (nrow(archive_df) > 0) {
   wb <- wb_add_data(wb, "Archive", data.frame(Message = "No archived bills"))
 }
 
-# ============================================
-# 6. SAVE WORKBOOK
-# ============================================
-wb_save(wb, OUTPUT_FILE, overwrite = TRUE)
-cat("\nCreated workbook:", OUTPUT_FILE, "\n")
+# Save -------------------------------------------------------------------------
 
-# ============================================
-# 7. UPDATE TRACKING FILE WITH CURRENT VALUES
-# ============================================
-cat("Updating tracking file with current bill states...\n")
+wb_save(wb, "Master_Pull_List.xlsx", overwrite = TRUE)
+cat("\n\U0001f7e2 Created workbook:", "Master_Pull_List.xlsx", "\n")
 
-# For existing tracked bills, update the previous values
-# For new bills, add them with Track=NA (to be decided)
-updated_tracking <- merged_bills %>%
-  select(bill_id) %>%
-  left_join(tracking_data %>% select(bill_id, Track, decision_date, notes), by = "bill_id") %>%
+# Update Tracking File ---------------------------------------------------------
+
+cat("\U0001f535 Updating tracking file with current bill states...\n")
+
+updated_tracking <- merged_bills |>
+  select(bill_id) |>
+  left_join(tracking_data |> select(bill_id, Track, decision_date, notes), by = "bill_id") |>
   mutate(
-    # Store current values as "previous" for next comparison
     previous_status_date = current_bills$status_date[match(bill_id, current_bills$bill_id)],
     previous_action = current_bills$action[match(bill_id, current_bills$bill_id)]
-  ) %>%
+  ) |>
   select(bill_id, Track, decision_date, previous_status_date, previous_action, notes)
 
-write_csv(updated_tracking, TRACKING_FILE)
-cat("Updated tracking file:", TRACKING_FILE, "\n")
+write_csv(updated_tracking, "tracking_decisions.csv")
 
-# ============================================
-# 8. SUMMARY
-# ============================================
-cat("\n=== SUMMARY ===\n")
-cat("Total bills processed:", nrow(current_bills), "\n")
-cat("New bills (needs Track decision):", n_new, "\n")
-cat("Changed bills:", n_status_changed + n_action_changed, "\n")
-cat("Bills in Needs_Review sheet:", nrow(needs_review_df), "\n")
-cat("Bills currently marked Track=TRUE:", n_currently_tracked, "\n")
-cat("Bills currently marked Track=FALSE:", n_currently_not_tracked, "\n")
-cat("Bills in Archive sheet:", nrow(archive_df), "\n")
-cat("\nWorkflow next steps:\n")
-cat("1. Open", OUTPUT_FILE, "and review the Needs_Review sheet\n")
-cat("2. Set Track = TRUE for bills you want to track (FALSE is default = not tracked)\n")
-cat("3. Save the Excel file\n")
-cat("4. Run 02b_sync_decisions.R to save your decisions\n")
-cat("5. Run this script again to refresh the Tracked/Not_Tracked sheet views\n")
+# Summary ----------------------------------------------------------------------
+
+cat("\n\U0001f4ca Summary:\n")
+cat("  Total bills processed:", nrow(current_bills), "\n")
+cat("  New bills (needs Track decision):", n_new, "\n")
+cat("  Changed bills:", n_status_changed + n_action_changed, "\n")
+cat("  Bills in Needs_Review:", nrow(needs_review_df), "\n")
+cat("  Tracked (Track=TRUE):", n_currently_tracked, "\n")
+cat("  Not tracked (Track=FALSE):", n_currently_not_tracked, "\n")
+cat("  Archived:", nrow(archive_df), "\n")
+
+cat("\n\U0001f535 Next steps:\n")
+cat("  1. Open", "Master_Pull_List.xlsx", "and review the Needs_Review sheet\n")
+cat("  2. Set Track=TRUE for bills to track (FALSE is default)\n")
+cat("  3. Save the Excel file\n")
+cat("  4. Run 02b_sync_decisions.R to save your decisions\n")
+cat("  5. Run this script again to refresh Tracked/Not_Tracked views\n\n")

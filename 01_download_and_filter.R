@@ -1,58 +1,34 @@
-# Script 01: Download from Google Drive and filter bills
-# Data source: Google Drive (updated weekly by colleague from LegiScan API)
-library(googledrive)
-library(tidyverse)
+# ==============================================================================
+# Title:        Download and Filter Bills
+# Description:  Downloads the combined bill dataset from Google Drive (maintained
+#               weekly by Biko via LegiScan API) and filters to target states
+#               and education/finance keywords.
+# Output:       filtered_bills.csv
+# ==============================================================================
 
-# Download from Google Drive
-drive_download(
-  as_id("1K1MJ7uB5aXvZLYcq4N8VwjSOFMDkisvd"),
-  path = "gdrive_all_states_combined.csv",
-  overwrite = TRUE)
+source("config/pkg_dependencies.R")
+source("config/filter_settings.R")
 
-# Read the CSV
-bills_df <- read_csv("gdrive_all_states_combined.csv")
+# Main -------------------------------------------------------------------------
 
-# Define target states (17 states tracking education/finance legislation)
-target_state_ids <- c("AL",
-                      "AZ",
-                      "AR",
-                      "CA",
-                      "CO",
-                      "DE",
-                      "GA",
-                      "IN",
-                      "MD",
-                      "MI",
-                      "MS",
-                      "NM",
-                      "NY",
-                      "NC",
-                      "PA",
-                      "TN",
-                      "VA")
+# 1. Download latest bill data from GDrive
+cat("\n\U0001f535 Downloading bill data from Google Drive...\n")
+drive_download(as_id(GDRIVE_FILE_ID), path = "gdrive_all_states_combined.csv", overwrite = TRUE)
 
-# Define keywords to search for
-keywords <- c(
-  "education",
-  "teacher",
-  "school",
-  "property tax"
-)
+bills_all <- read_csv("gdrive_all_states_combined.csv", show_col_types = FALSE)
+cat("\U0001f535 Loaded", nrow(bills_all), "bills from all states\n")
 
-# Filter bills by keywords and target states
-bills_df_filtered <- bills_df %>%
+# 2. Filter bill data using settings
+bills_filtered <- bills_all |>
   filter(
-    # (1) Check if the title has ANY match with your keywords
-    map_lgl(title, ~ any(str_detect(tolower(.x), keywords))) |
-
-      # (2) OR if the description has ANY match with your keywords
-      map_lgl(description, ~ any(str_detect(tolower(.x), keywords))) |
-
-      # (3) OR if the committee name has ANY match with your keywords
-      map_lgl(committee, ~ any(str_detect(tolower(.x), keywords)))
+    map_lgl(title, ~ any(str_detect(tolower(.x), KEYWORDS))) |
+      map_lgl(description, ~ any(str_detect(tolower(.x), KEYWORDS))) |
+      map_lgl(committee, ~ any(str_detect(tolower(.x), KEYWORDS)))
   ) |>
-  # filter for target states
-  filter(state %in% target_state_ids)
+  filter(state %in% TARGET_STATES)
 
-# Write the filtered dataframe to a new CSV for use in downstream scripts
-write_csv(bills_df_filtered, "filtered_bills.csv")
+write_csv(bills_filtered, "filtered_bills.csv")
+
+cat("\n\U0001f7e2 Wrote", nrow(bills_filtered), "filtered bills to filtered_bills.csv\n")
+cat("  States:", length(unique(bills_filtered$state)),
+    "of", length(TARGET_STATES), "target states represented\n\n")

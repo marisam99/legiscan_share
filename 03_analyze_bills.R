@@ -1,56 +1,47 @@
-# Install and load dplyr if not already done:
-# install.packages("dplyr")
-library(dplyr)
+# ==============================================================================
+# Title:        Analyze Dead or Stuck Bills
+# Description:  Categorizes filtered bills as Dead, Stuck, or Active based on
+#               legislative action keywords and days since last action. Bills
+#               inactive for 45+ days are flagged as Stuck.
+# Output:       filtered_bills_with_status.csv
+# ==============================================================================
 
-# 1) Read in your CSV file:
-df <- read.csv("filtered_bills.csv", stringsAsFactors = FALSE)
+source("config/pkg_dependencies.R")
+source("config/filter_settings.R")
 
-# 2) Define a 'current_date' to measure "stuck" criteria (45+ days of inactivity).
-#    For illustration, we use March 26, 2025 (2025-03-26). Adjust as needed.
-current_date <- as.Date("2025-03-26")
+# Configs ----------------------------------------------------------------------
 
-# 3) Use dplyr to:
-#    - Convert status_date to Date type
-#    - Check for 'Dead' bills by searching keywords in 'action'
-#    - Calculate how many days since last status_date
-#    - Categorize each bill with case_when
+CURRENT_DATE <- Sys.Date()
 
-df <- df %>%
+# Main -------------------------------------------------------------------------
+
+cat("\n\U0001f535 Loading bills from", "filtered_bills.csv", "...\n")
+bills <- read_csv("filtered_bills.csv", show_col_types = FALSE)
+cat("  Loaded", nrow(bills), "bills\n")
+
+bills <- bills |>
   mutate(
-    # Convert status_date to a proper Date (safely handle missing/invalid dates)
     status_date_parsed = as.Date(status_date, format = "%Y-%m-%d"),
-    
-    # Check if the bill is "Dead" via certain keywords
-    is_dead = grepl("died in committee", action, ignore.case = TRUE) |
-      grepl("fail|postpone|postponed|inexpedient|killed|veto", 
-            action, ignore.case = TRUE),
-    
-    # Calculate days since last action
-    days_since_last_action = as.numeric(difftime(current_date, 
-                                                 status_date_parsed, 
-                                                 units = "days")),
-    
-    # Assign status_category with case_when
+    is_dead = grepl(DEAD_KEYWORDS, action, ignore.case = TRUE),
+    days_since_last_action = as.numeric(difftime(CURRENT_DATE, status_date_parsed, units = "days")),
     status_category = case_when(
-      # 1) Dead (based on text in 'action')
       is_dead ~ "Dead",
-      
-      # 2) Stuck if not Dead and no action > 45 days
-      !is_dead & (days_since_last_action > 45) ~ "Stuck",
-      
-      # 3) Otherwise Active
+      !is_dead & (days_since_last_action > STUCK_THRESHOLD_DAYS) ~ "Stuck",
       TRUE ~ "Active"
     )
   )
 
-# 4) Take a quick look at the counts
-table(df$status_category)
+# Summary ----------------------------------------------------------------------
 
-# That’s it! 
-# You can also filter if you want to see just the Dead or just the Stuck bills, e.g.:
-dead_bills  <- df %>% filter(status_category == "Dead")
-stuck_bills <- df %>% filter(status_category == "Stuck")
-active_bills <- df %>% filter(status_category == "Active")
+counts <- table(bills$status_category)
+cat("\n\U0001f4ca Bill Status Summary:\n")
+for (category in names(counts)) {
+  cat("  ", category, ":", counts[category], "\n")
+}
 
-# Write out your new dataframe if you want:
-write.csv(df, "filtered_bills_with_status.csv", row.names = FALSE)
+dead_bills <- bills |> filter(status_category == "Dead")
+stuck_bills <- bills |> filter(status_category == "Stuck")
+active_bills <- bills |> filter(status_category == "Active")
+
+write_csv(bills, "filtered_bills_with_status.csv")
+cat("\n\U0001f7e2 Wrote", nrow(bills), "bills with status categories to", "filtered_bills_with_status.csv", "\n\n")
