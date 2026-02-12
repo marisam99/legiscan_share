@@ -1,5 +1,5 @@
 # ==============================================================================
-# Title:        Create Tracked Workbook
+# Title:        Create Tracked Workbook with Change Detection
 # Description:  Creates an Excel workbook (Master_Pull_List.xlsx) with 4 sheets
 #               for reviewing and tracking legislative bills: Needs_Review (new
 #               and changed bills), Tracked, Not_Tracked, and Archive (dead/stuck).
@@ -7,12 +7,15 @@
 # Output:       Master_Pull_List.xlsx, tracking_decisions.csv
 # ==============================================================================
 
+# CONFIGS & CONSTANTS ------------------------------------------------------------
+
 source("config/pkg_dependencies.R")
 source("config/filter_settings.R")
 
-# Configs ----------------------------------------------------------------------
-
 CURRENT_DATE <- Sys.Date()
+INPUT_FILE <- "filtered_bills.csv"
+TRACKING_FILE <- "tracking_decisions.csv"
+OUTPUT_FILE <- "Master_Pull_List.xlsx"
 
 # Track column: TRUE = track this bill, FALSE = do not track (default)
 # Workflow:
@@ -20,14 +23,15 @@ CURRENT_DATE <- Sys.Date()
 #   2. Save the file → run 02b_sync_decisions.R
 #   3. Run this script again to refresh Tracked/Not_Tracked views
 
-# Load Data --------------------------------------------------------------------
+# 1. Load Current Bills Data ----------------------------------------------------
 
-cat("\n\U0001f535 Loading current bills from", "filtered_bills.csv", "...\n")
-current_bills <- read_csv("filtered_bills.csv", show_col_types = FALSE)
+cat("\n\U0001f535 Loading current bills from", INPUT_FILE, "...\n")
+current_bills <- read_csv(INPUT_FILE, show_col_types = FALSE)
 cat("  Loaded", nrow(current_bills), "bills\n")
 
-if (!file.exists("tracking_decisions.csv")) {
-  cat("\U0001f7e1 No tracking file found. Creating new", "tracking_decisions.csv", "...\n")
+# 2. Load or Initialize Tracking Data --------------------------------------------
+if (!file.exists(TRACKING_FILE)) {
+  cat("\U0001f7e1 No tracking file found. Creating new", TRACKING_FILE, "...\n")
   tracking_data <- tibble(
     bill_id = integer(),
     Track = logical(),
@@ -36,13 +40,13 @@ if (!file.exists("tracking_decisions.csv")) {
     previous_action = character(),
     notes = character()
   )
-  write_csv(tracking_data, "tracking_decisions.csv")
+  write_csv(tracking_data, TRACKING_FILE)
 } else {
-  tracking_data <- read_csv("tracking_decisions.csv", show_col_types = FALSE)
-  cat("  Loaded", nrow(tracking_data), "tracked decisions from", "tracking_decisions.csv", "\n")
+  tracking_data <- read_csv(TRACKING_FILE, show_col_types = FALSE)
+  cat("  Loaded", nrow(tracking_data), "tracked decisions")
 }
 
-# Detect Changes ---------------------------------------------------------------
+# 3. Merge and Detect Changes -----------------------------------------------------
 
 cat("\n\U0001f535 Detecting changes...\n")
 
@@ -53,9 +57,11 @@ merged_bills <- current_bills |>
     by = "bill_id"
   ) |>
   mutate(
+    # Convert status_date to char. for comparison (handles numeric Excel dates)
     status_date_str = as.character(status_date),
     prev_status_str = as.character(previous_status_date),
 
+    # Change detection flags
     is_new = is.na(Track),
     status_changed = !is.na(previous_status_date) &
                      status_date_str != prev_status_str,
@@ -63,7 +69,8 @@ merged_bills <- current_bills |>
                      action != previous_action,
     needs_review = is_new | status_changed | action_changed,
 
-    # Handle both date and numeric formats from Excel
+    # Archive detection (Dead/Stuck bills)
+    # Try to parse status_date - handle both date and numeric formats from Excel
     status_date_parsed = case_when(
       is.numeric(status_date) ~ as.Date(status_date, origin = "1899-12-30"),
       TRUE ~ as.Date(status_date)
@@ -78,7 +85,7 @@ merged_bills <- current_bills |>
       TRUE ~ NA_character_
     )
   )
-
+# Summary Stats
 n_new <- sum(merged_bills$is_new, na.rm = TRUE)
 n_status_changed <- sum(merged_bills$status_changed, na.rm = TRUE)
 n_action_changed <- sum(merged_bills$action_changed, na.rm = TRUE)
@@ -89,8 +96,9 @@ cat("  Status changed:", n_status_changed, "\n")
 cat("  Action changed:", n_action_changed, "\n")
 cat("  Total needs review:", n_needs_review, "\n")
 
-# Categorize Into Sheets -------------------------------------------------------
+# 4. Categorize Into Sheets -------------------------------------------------------
 
+# Sheet 1: Needs_Review - new and changed bills
 needs_review_df <- merged_bills |>
   filter(needs_review) |>
   mutate(
@@ -104,9 +112,11 @@ needs_review_df <- merged_bills |>
          url, committee, description) |>
   arrange(desc(is_new), state, bill_number)
 
+# Sheets 2 & 3: Tracked and Not_Tracked show ALL bills with those Track values
 n_currently_tracked <- sum(merged_bills$Track == TRUE, na.rm = TRUE)
 n_currently_not_tracked <- sum(merged_bills$Track == FALSE, na.rm = TRUE)
 
+# Sheet 4: Archive - Dead or stuck bills
 archive_df <- merged_bills |>
   filter(!is.na(archive_reason)) |>
   mutate(bill_id = as.character(bill_id)) |>
@@ -114,19 +124,20 @@ archive_df <- merged_bills |>
          days_since_action, action, archive_reason, url) |>
   arrange(archive_reason, state, bill_number)
 
+# Summary Stats
 cat("\n\U0001f4ca Sheet counts:\n")
 cat("  Needs_Review:", nrow(needs_review_df), "\n")
 cat("  Tracked:", n_currently_tracked, "\n")
 cat("  Not_Tracked:", n_currently_not_tracked, "\n")
 cat("  Archive:", nrow(archive_df), "\n")
 
-# Create Workbook --------------------------------------------------------------
+# 5. Create Workbook --------------------------------------------------------------
 
 cat("\n\U0001f535 Creating Excel workbook...\n")
 
 wb <- wb_workbook()
 
-# --- Needs_Review sheet ---
+# --- Sheet 1: Needs_Review ---
 wb <- wb_add_worksheet(wb, "Needs_Review")
 
 if (nrow(needs_review_df) > 0) {
@@ -186,7 +197,7 @@ if (nrow(needs_review_df) > 0) {
   wb <- wb_add_data(wb, "Needs_Review", data.frame(Message = "No bills need review"))
 }
 
-# --- Tracked sheet ---
+# --- Sheet 2: Tracked (ALL bills with Track=TRUE, editable) ---
 wb <- wb_add_worksheet(wb, "Tracked")
 
 tracked_bills <- merged_bills |>
@@ -220,7 +231,7 @@ if (nrow(tracked_bills) > 0) {
 }
 wb <- wb_freeze_pane(wb, "Tracked", first_row = TRUE)
 
-# --- Not_Tracked sheet ---
+# --- Sheet 3: Not_Tracked (ALL bills with Track=FALSE, editable) ---
 wb <- wb_add_worksheet(wb, "Not_Tracked")
 
 not_tracked_bills <- merged_bills |>
@@ -254,7 +265,7 @@ if (nrow(not_tracked_bills) > 0) {
 }
 wb <- wb_freeze_pane(wb, "Not_Tracked", first_row = TRUE)
 
-# --- Archive sheet ---
+# --- Sheet 4: Archive ---
 wb <- wb_add_worksheet(wb, "Archive")
 
 if (nrow(archive_df) > 0) {
@@ -294,15 +305,17 @@ if (nrow(archive_df) > 0) {
   wb <- wb_add_data(wb, "Archive", data.frame(Message = "No archived bills"))
 }
 
-# Save -------------------------------------------------------------------------
+# 6. Save Workbook --------------------------------------------------------------
 
-wb_save(wb, "Master_Pull_List.xlsx", overwrite = TRUE)
-cat("\n\U0001f7e2 Created workbook:", "Master_Pull_List.xlsx", "\n")
+wb_save(wb, OUTPUT_FILE, overwrite = TRUE)
+cat("\n\U0001f7e2 Created workbook:", OUTPUT_FILE, "\n")
 
-# Update Tracking File ---------------------------------------------------------
+# 7. Update Tracking File -------------------------------------------------------
 
 cat("\U0001f535 Updating tracking file with current bill states...\n")
 
+# For existing tracked bills, update the previous values
+# For new bills, add them with Track=NA (to be decided)
 updated_tracking <- merged_bills |>
   select(bill_id) |>
   left_join(tracking_data |> select(bill_id, Track, decision_date, notes), by = "bill_id") |>
@@ -312,9 +325,10 @@ updated_tracking <- merged_bills |>
   ) |>
   select(bill_id, Track, decision_date, previous_status_date, previous_action, notes)
 
-write_csv(updated_tracking, "tracking_decisions.csv")
+write_csv(updated_tracking, TRACKING_FILE)
+cat("Updated tracking file:", TRACKING_FILE, "\n")
 
-# Summary ----------------------------------------------------------------------
+# 8. Summary ----------------------------------------------------------------------
 
 cat("\n\U0001f4ca Summary:\n")
 cat("  Total bills processed:", nrow(current_bills), "\n")
@@ -326,7 +340,7 @@ cat("  Not tracked (Track=FALSE):", n_currently_not_tracked, "\n")
 cat("  Archived:", nrow(archive_df), "\n")
 
 cat("\n\U0001f535 Next steps:\n")
-cat("  1. Open", "Master_Pull_List.xlsx", "and review the Needs_Review sheet\n")
+cat("  1. Open", OUTPUT_FILE, "and review the Needs_Review sheet\n")
 cat("  2. Set Track=TRUE for bills to track (FALSE is default)\n")
 cat("  3. Save the Excel file\n")
 cat("  4. Run 02b_sync_decisions.R to save your decisions\n")

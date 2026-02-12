@@ -2,7 +2,7 @@
 
 An automated R pipeline for tracking legislation across U.S. states. This tool receives legislative bill data from Google Drive (updated weekly from LegiScan's API), applies filtering, and produces an Excel workbook for human review and decision tracking.
 
-**📁 Note:** Scripts 00-04 (LegiScan API data acquisition) have been archived. Your workflow starts at Script 01, which downloads pre-processed data from Google Drive.
+**📁 Note:** Scripts 00-04 (LegiScan API data acquisition) have been archived. Start by configuring `config/filter_settings.R`, then run Script 01 to download pre-processed data from Google Drive.
 - See [`archived_scripts/README.md`](archived_scripts/README.md) for complete documentation on archived scripts, API setup, and the full data pipeline.
 
 ------------------------------------------------------------------------
@@ -24,13 +24,13 @@ An automated R pipeline for tracking legislation across U.S. states. This tool r
 ### 1. Install required packages
 
 ``` r
-install.packages(c("googledrive", "tidyverse", "openxlsx2"))
+source("config/pkg_dependencies.R")
 ```
 
 ### 2. Run the pipeline
 
 ``` r
-source("01_download_and_filter.R")             # Download from Google Drive & filter
+source("01_download_and_filter.R")          # Download from Google Drive & filter
 source("02a_create_tracked_workbook.R")     # Generate Excel workbook
 ```
 
@@ -40,8 +40,6 @@ source("02a_create_tracked_workbook.R")     # Generate Excel workbook
 2.  Review the `Needs_Review` sheet
 3.  Set `Track = TRUE` or `FALSE` for each bill
 4.  Save and run `source("02b_sync_decisions.R")`
-
-**Note:** Scripts 00-04 are no longer needed in your workflow - they are run weekly by your colleague and uploaded to Google Drive. See `archived_scripts/README.md` for details.
 
 ------------------------------------------------------------------------
 
@@ -55,17 +53,26 @@ source("02a_create_tracked_workbook.R")     # Generate Excel workbook
 └─────────────────────────────────────────────────────────────────────────┘
                                     ↓
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                    YOUR WORKFLOW STARTS HERE                             │
+│                  ★ START HERE: config/filter_settings.R                 │
+├─────────────────────────────────────────────────────────────────────────┤
+│  Determine and set your variables of interest                           │
+│    • TARGET_STATES — which states to include                            │
+│    • KEYWORDS — terms to match in title, description, committee         │
+│    • STUCK_THRESHOLD_DAYS — days of inactivity before flagging          │
+│    • DEAD_KEYWORDS — regex for detecting dead bills                     │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    ↓
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         DOWNLOAD & FILTER                               │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  01_download_and_filter.R                                               │
 │    • Download gdrive_all_states_combined.csv from Google Drive          │
-│    • Apply keyword filters (education, teacher, school, property tax)   │
-│    • Apply state filters (17 target states)                             │
+│    • Apply keyword and state filters from settings above                │
 │    • Output: filtered_bills.csv                                         │
 └─────────────────────────────────────────────────────────────────────────┘
                                     ↓
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                         EXCEL WORKBOOK CREATION                          │
+│                         EXCEL WORKBOOK CREATION                         │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  02a_create_tracked_workbook.R   →  Master_Pull_List.xlsx               │
 │    • Needs_Review sheet (new/changed bills)                             │
@@ -87,17 +94,14 @@ source("02a_create_tracked_workbook.R")     # Generate Excel workbook
 
 | Script | Purpose | Output |
 |-----------------------|--------------------------|-----------------------|
-| `00-04` | **ARCHIVED** - Run by colleague weekly | See `archived_scripts/` |
-| `01` | Download from Google Drive & filter | `filtered_bills.csv` |
-| `02a` | Create tracked Excel workbook | `Master_Pull_List.xlsx` |
-| `02b` | Sync user decisions back to CSV | `tracking_decisions.csv` |
+| `01` | Download from Google Drive & filter according to keywords | `filtered_bills.csv` |
+| `02a` | Create Excel workbook for bill tracking | `Master_Pull_List.xlsx` |
+| `02b` | Sync user decisions on which bills to track | `tracking_decisions.csv` |
 | `03` | Analyze dead/stuck bills (optional) | `filtered_bills_with_status.csv` |
 
 ------------------------------------------------------------------------
 
 ## Detailed Script Documentation {#detailed-script-documentation}
-
-**Note:** For documentation on archived Scripts 00-04, see [`archived_scripts/README.md`](archived_scripts/README.md).
 
 ------------------------------------------------------------------------
 
@@ -113,7 +117,7 @@ source("02a_create_tracked_workbook.R")     # Generate Excel workbook
 
 **State Filter** (17 target states): - AL, AZ, AR, CA, CO, DE, GA, IN, MD, MI, MS, NM, NY, NC, PA, TN, VA
 
-**Input:** Google Drive file ID `1K1MJ7uB5aXvZLYcq4N8VwjSOFMDkisvd`
+**Input:** Google Drive file (ID set via `GDRIVE_FILE_ID` in `config/filter_settings.R`)
 
 **Output:** `filtered_bills.csv` (\~5 MB)
 
@@ -138,12 +142,7 @@ source("02a_create_tracked_workbook.R")     # Generate Excel workbook
 
 **Features:** - Frozen header rows - TRUE/FALSE data validation for Track column - Color-coded highlighting for new/changed bills - Days since last action calculated
 
-**Configuration:**
-
-``` r
-CURRENT_DATE = Sys.Date()
-STUCK_THRESHOLD_DAYS = 45
-```
+**Configuration:** `STUCK_THRESHOLD_DAYS` and `DEAD_KEYWORDS` are set in `config/filter_settings.R`. `CURRENT_DATE` is set locally via `Sys.Date()`.
 
 **Output:** - `Master_Pull_List.xlsx` (4-sheet workbook) - Updated `tracking_decisions.csv`
 
@@ -175,7 +174,7 @@ STUCK_THRESHOLD_DAYS = 45
 
 **Output:** `filtered_bills_with_status.csv`
 
-**Libraries:** `dplyr`
+**Libraries:** `tidyverse`
 
 ------------------------------------------------------------------------
 
@@ -187,7 +186,7 @@ Your workflow (Scripts 01-03) generates these files:
 |------|------------|-------------|
 | `gdrive_all_states_combined.csv` | Script 01 | Downloaded from Google Drive (updated weekly by colleague) |
 | `filtered_bills.csv` | Script 01 | Filtered to target states + keywords |
-| `tracking_decisions.csv` | Script 02b | Your Track decisions |
+| `tracking_decisions.csv` | Scripts 02a/02b | Your Track decisions |
 | `Master_Pull_List.xlsx` | Script 02a | Excel workbook for tracking |
 | `filtered_bills_with_status.csv` | Script 03 | (Optional) Bills categorized by status |
 
@@ -197,6 +196,9 @@ Your workflow (Scripts 01-03) generates these files:
 
 ```
 legiscan-edfinance-tracker/
+├── config/
+│   ├── pkg_dependencies.R        # Install/load required packages
+│   └── filter_settings.R         # Target states, keywords, thresholds
 ├── archived_scripts/
 │   ├── 00_simplified_datasetlist_grab.R
 │   ├── 01_simplified_get_LegDatasets.R
@@ -213,7 +215,7 @@ legiscan-edfinance-tracker/
 
 **Note:**
 - Scripts 00-04 are archived (run weekly by colleague, not by you)
-- Data files (CSVs, Excel files) are generated when you run Scripts 05-06a
+- Data files (CSVs, Excel files) are generated when you run Scripts 01-02a
 
 ------------------------------------------------------------------------
 
@@ -221,16 +223,17 @@ legiscan-edfinance-tracker/
 
 ### Initial Setup (First Time)
 
-1.  **Install required packages:** `install.packages(c("googledrive", "tidyverse", "openxlsx2"))`
-2.  **Run Script 05** to download and filter data: `source("01_download_and_filter.R")`
-3.  **Run Script 02a** to create workbook: `source("02a_create_tracked_workbook.R")`
-4.  **Open `Master_Pull_List.xlsx`**
+1.  **Install required packages:** `source("config/pkg_dependencies.R")`
+2.  **Set filters:** Change keywords, target states, and stuck threshold in `config/filter_settings.R`
+3.  **Run Script 01** to download and filter data: `source("01_download_and_filter.R")`
+4.  **Run Script 02a** to create workbook: `source("02a_create_tracked_workbook.R")`
+5.  **Open `Master_Pull_List.xlsx`**
 
 ### Regular Workflow
 
 ```
 1. REFRESH DATA
-   └── Run Script 05: source("01_download_and_filter.R")
+   └── Run Script 01: source("01_download_and_filter.R")
    └── Run Script 02a: source("02a_create_tracked_workbook.R")
 
 2. REVIEW BILLS
@@ -253,42 +256,22 @@ legiscan-edfinance-tracker/
    └── Ignored bills appear in "Not_Tracked" sheet
 
 6. REPEAT
-   └── Run this workflow weekly after your colleague updates Google Drive
+   └── Run this workflow weekly after Biko updates Google Drive
 ```
-
-### Understanding the Excel Sheets
-
--   **Needs_Review**: Your action queue. Bills here are new or have changed.
--   **Tracked**: Bills you've decided to follow. Re-run 02a to update.
--   **Not_Tracked**: Bills you've decided to ignore. Re-run 02a to update.
--   **Archive**: Bills that have died or are stuck (no action in 45+ days).
 
 ------------------------------------------------------------------------
 
 ## Customization {#customization}
 
-### Change Target States
-
-Edit `01_download_and_filter.R`:
+All customizable settings are in `config/filter_settings.R`:
 
 ``` r
-target_states <- c("AL", "AZ", "AR", ...)  # Modify this list
-```
-
-### Change Keywords
-
-Edit `01_download_and_filter.R`:
-
-``` r
-keyword_pattern <- "education|teacher|school|property tax"  # Modify this pattern
-```
-
-### Change "Stuck" Threshold
-
-Edit `02a_create_tracked_workbook.R`:
-
-``` r
-STUCK_THRESHOLD_DAYS <- 45  # Change to your preferred number of days
+GDRIVE_FILE_ID <- "1K1MJ7uB5aXvZLYcq4N8VwjSOFMDkisvd"  # Google Drive source file
+TARGET_STATES <- c("AL", "AZ", "AR", ...)       # States to include
+KEYWORDS <- c("education", "teacher", ...)       # Keywords to match in title/description/committee
+STUCK_THRESHOLD_DAYS <- 45                       # Days of inactivity before flagging as "Stuck"
+DEAD_KEYWORDS <- "died in committee|fail|..."    # Regex pattern for dead bill detection
+MIGRATION_MODE <- FALSE                          # Set TRUE to import from old Excel structure
 ```
 
 ------------------------------------------------------------------------
