@@ -266,15 +266,31 @@ legiscan_share/
 
 ## Customization {#customization}
 
-All customizable settings are in `config/filter_settings.R`:
+Default settings are in `config/filter_settings.R`:
 
 ``` r
 GDRIVE_FILE_ID <- "1K1MJ7uB5aXvZLYcq4N8VwjSOFMDkisvd"  # Google Drive source file
-TARGET_STATES <- c("AL", "AZ", "AR", ...)       # States to include
-KEYWORDS <- c("education", "teacher", ...)       # Keywords to match in title/description/committee
+TARGET_STATES <- c("CA", "NY", "TX")             # States to include
+KEYWORDS <- c("keyword1", "keyword2")            # Keywords to match in title/description/committee
 STUCK_THRESHOLD_DAYS <- 45                       # Days of inactivity before flagging as "Stuck"
 DEAD_KEYWORDS <- "died in committee|fail|..."    # Regex pattern for dead bill detection
 MIGRATION_MODE <- FALSE                          # Set TRUE to import from old Excel structure
+```
+
+### Project-Specific Settings
+
+To apply this tool to a specific project without modifying the defaults above, create `config/project_settings.R` and override any variables you need. This file is automatically sourced by `filter_settings.R` if it exists.
+
+**Recommended workflow:**
+
+1. Keep `main` as a clean, reusable template with generic defaults
+2. Create a project branch (e.g., `project/my-project`) off `main`
+3. Add `config/project_settings.R` on that branch with your project-specific states, keywords, etc.
+4. Work on the project branch; when you improve the core pipeline on `main`, merge it in:
+
+``` bash
+git checkout project/my-project
+git merge main
 ```
 
 ------------------------------------------------------------------------
