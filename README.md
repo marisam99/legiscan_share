@@ -30,8 +30,8 @@ source("config/pkg_dependencies.R")
 ### 2. Run the pipeline
 
 ``` r
-source("01_download_and_filter.R")          # Download from Google Drive & filter
-source("02a_create_tracked_workbook.R")     # Generate Excel workbook
+source("R/01_download_and_filter.R")          # Download from Google Drive & filter
+source("R/02a_create_tracked_workbook.R")     # Generate Excel workbook
 ```
 
 ### 3. Track bills
@@ -105,7 +105,7 @@ source("02a_create_tracked_workbook.R")     # Generate Excel workbook
 
 ------------------------------------------------------------------------
 
-### Script 01: `01_download_and_filter.R`
+### Script 01: `R/01_download_and_filter.R`
 
 **Purpose:** Download combined data from Google Drive and filter to relevant bills.
 
@@ -125,7 +125,7 @@ source("02a_create_tracked_workbook.R")     # Generate Excel workbook
 
 ------------------------------------------------------------------------
 
-### Script 02a: `02a_create_tracked_workbook.R`
+### Script 02a: `R/02a_create_tracked_workbook.R`
 
 **Purpose:** Generate a multi-sheet Excel workbook for bill tracking with change detection.
 
@@ -150,7 +150,7 @@ source("02a_create_tracked_workbook.R")     # Generate Excel workbook
 
 ------------------------------------------------------------------------
 
-### Script 02b: `02b_sync_decisions.R`
+### Script 02b: `R/02b_sync_decisions.R`
 
 **Purpose:** Sync user's Track decisions from Excel back to the tracking CSV.
 
@@ -164,7 +164,7 @@ source("02a_create_tracked_workbook.R")     # Generate Excel workbook
 
 ------------------------------------------------------------------------
 
-### Script 03: `03_analyze_bills.R`
+### Script 03: `R/03_analyze_bills.R`
 
 **Purpose:** Analyze and categorize bills by legislative status.
 
@@ -195,10 +195,15 @@ Your workflow (Scripts 01-03) generates these files:
 ### Repository Structure
 
 ```
-legiscan-edfinance-tracker/
+legiscan_share/
 ├── config/
 │   ├── pkg_dependencies.R        # Install/load required packages
 │   └── filter_settings.R         # Target states, keywords, thresholds
+├── R/
+│   ├── 01_download_and_filter.R
+│   ├── 02a_create_tracked_workbook.R
+│   ├── 02b_sync_decisions.R
+│   └── 03_analyze_bills.R
 ├── archived_scripts/
 │   ├── 00_simplified_datasetlist_grab.R
 │   ├── 01_simplified_get_LegDatasets.R
@@ -206,15 +211,13 @@ legiscan-edfinance-tracker/
 │   ├── 03_minimal_json_to_csv.R
 │   ├── 04_combine_all_states.R
 │   └── README.md
-├── 01_download_and_filter.R
-├── 02a_create_tracked_workbook.R
-├── 02b_sync_decisions.R
-├── 03_analyze_bills.R
+├── CLAUDE.md                      # Developer preferences and project context
 └── README.md
 ```
 
 **Note:**
 - Scripts 00-04 are archived (run weekly by colleague, not by you)
+- Active scripts (01-03) are in the `R/` directory
 - Data files (CSVs, Excel files) are generated when you run Scripts 01-02a
 
 ------------------------------------------------------------------------
